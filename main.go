@@ -55,15 +55,23 @@ var wg sync.WaitGroup
 func main() {
 	defer func() {
 		wg.Wait()
+		fmt.Printf("\nActive users:")
 		fmt.Println(globalData.activeUsers)
+		fmt.Printf("\nAvailable nodes:")
 		fmt.Println(globalData.connectedNodes)
 	}()
+
+	// Don't wait initChannelListeners as it is in infinite for.
+	go initChannelListeners(globalData.activeUsersCh, globalData.connectedNodesCh)
+	addHSFuldaNode(globalData.activeUsersCh)
 
 	// create N passengers and push to users channel  - concurrent
 	// add listener to read from users channel and push to active users
 	wg.Add(1)
-	go addConcurrentPassengers(5, globalData.activeUsersCh)
-	go initChannelListeners(globalData.activeUsersCh, globalData.connectedNodesCh)
+	go addConcurrentPassengers(2, globalData.activeUsersCh)
+	wg.Wait()
+	wg.Add(1)
+	go addConcurrentPassengers(2, globalData.activeUsersCh)
 
 	// create M drivers and push to users channel
 	// assignDriver() to take activeusers at that time, create copy and
@@ -80,8 +88,6 @@ func initChannelListeners(usersCh chan User, nodesCh chan ConnectedNodesRequest)
 			wg.Add(1)
 			go calculateDistanceToExistingNodes(u, globalData.activeUsers, nodesCh)
 			globalData.activeUsers = append(globalData.activeUsers, u)
-
-			// TODO: calculate distances to existing users here...
 
 		case cnr = <-nodesCh:
 			globalData.connectedNodes[cnr.node] = cnr.value
@@ -103,9 +109,14 @@ func calculateDistanceToExistingNodes(newUser User, existingUsers []User, nodesC
 	fmt.Println(len(existingUsers), newUser)
 
 	for _, user := range existingUsers {
+		if user.name == newUser.name {
+			continue
+		}
+
 		localWG.Add(1)
 		go func(user User) {
 			distance := getDistance(newUser.location, user.location)
+			// Use mutex to avoid concurrent writes to the map
 			mu.Lock()
 			localData[user.name] = distance
 			mu.Unlock()
@@ -120,14 +131,13 @@ func calculateDistanceToExistingNodes(newUser User, existingUsers []User, nodesC
 		value: localData,
 	}
 
-	// TODO: this is quitting for the first passenger request. It should not quit
 	wg.Done()
-	//quitCh <- 1
 }
 
 func addConcurrentPassengers(count int, ch chan<- User) {
 	var localWG sync.WaitGroup
 	for i := 0; i < count; i++ {
+		ActivePassengerCount += 1
 		localWG.Add(1)
 		go func(i int) {
 			ch <- User{
@@ -135,7 +145,7 @@ func addConcurrentPassengers(count int, ch chan<- User) {
 				location: generateRandomLocation(),
 			}
 			localWG.Done()
-		}(i)
+		}(ActivePassengerCount)
 	}
 	localWG.Wait()
 	// quitCh <- 1
@@ -152,4 +162,11 @@ func getDistance(src Location, dest Location) float32 {
 // TODO: generate coordinates within a range around HS Fulda
 func generateRandomLocation() Location {
 	return Location{rand.Float64(), rand.Float64()}
+}
+
+func addHSFuldaNode(ch chan<- User) {
+	ch <- User{
+		name:     "HS",
+		location: Location{50.565100, 9.686800},
+	}
 }
