@@ -3,65 +3,153 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"strconv"
+	"sync"
+	"time"
 )
 
 const (
-	HSFuldaUser = "HS"
+	HSFuldaUsername   = "HS"
+	MaxPassengerCount = 2
+	MaxDriverCount    = 2
 )
 
-var HSFuldaCoordinates = Location{50.565100, 9.686800}
-
-type GlobalMap struct {
-	// mu   sync.Mutex
-	data    map[string]map[string]float32
-	readCh  chan map[string]float32
-	writeCh chan map[string]float32
-}
+var (
+	HSFuldaCoordinates   = Location{50.565100, 9.686800}
+	ActivePassengerCount = 0
+	ActiveDriverCount    = 0
+)
 
 type Location struct {
 	Lat, Long float64
 }
-
-func main() {
-	globalMap := GlobalMap{readCh: make(chan map[string]float32, 1000), writeCh: make(chan map[string]float32)}
-
-	fmt.Println("Hello! Let's build something awesome!")
-
-	go addPassenger("p1", generateRandomLocation(), globalMap.writeCh)
-	go addPassenger("p2", generateRandomLocation(), globalMap.writeCh)
-
-	handleGlobalMapReadWrites(&globalMap)
+type ConnectedNodesRequest struct {
+	node  string
+	value map[string]float32
 }
 
-func handleGlobalMapReadWrites(globalMap *GlobalMap) {
-	var localMap = make(map[string]float32)
+type User struct {
+	name     string
+	location Location
+}
+
+type GlobalState struct {
+	activeUsers      []User
+	activeUsersCh    chan User
+	connectedNodes   map[string]map[string]float32
+	connectedNodesCh chan ConnectedNodesRequest
+}
+
+// TODO: Ensure global state is not directly modified by any other goroutine
+// Use channels for communication and modify from main goroutine
+var globalData = GlobalState{
+	activeUsers:      make([]User, 0, 100), // capacity of 100 users initially
+	connectedNodes:   make(map[string]map[string]float32),
+	connectedNodesCh: make(chan ConnectedNodesRequest),
+	activeUsersCh:    make(chan User),
+}
+
+var quitCh = make(chan int)
+var wg sync.WaitGroup
+
+func main() {
+	defer func() {
+		wg.Wait()
+		fmt.Println(globalData.activeUsers)
+		fmt.Println(globalData.connectedNodes)
+	}()
+
+	// create N passengers and push to users channel  - concurrent
+	// add listener to read from users channel and push to active users
+	wg.Add(1)
+	go addConcurrentPassengers(5, globalData.activeUsersCh)
+	go initChannelListeners(globalData.activeUsersCh, globalData.connectedNodesCh)
+
+	// create M drivers and push to users channel
+	// assignDriver() to take activeusers at that time, create copy and
+
+}
+
+func initChannelListeners(usersCh chan User, nodesCh chan ConnectedNodesRequest) {
+	var u User
+	var cnr ConnectedNodesRequest
+
 	for {
 		select {
-		case localMap = <-globalMap.writeCh:
+		case u = <-usersCh:
+			wg.Add(1)
+			go calculateDistanceToExistingNodes(u, globalData.activeUsers, nodesCh)
+			globalData.activeUsers = append(globalData.activeUsers, u)
+
+			// TODO: calculate distances to existing users here...
+
+		case cnr = <-nodesCh:
+			globalData.connectedNodes[cnr.node] = cnr.value
+
+			// case <-quitCh:
+			// 	wg.Done()
+			// 	return
 
 		}
+
 	}
 }
 
+func calculateDistanceToExistingNodes(newUser User, existingUsers []User, nodesCh chan ConnectedNodesRequest) {
+	var localWG sync.WaitGroup
+	localData := make(map[string]float32)
+	var mu sync.Mutex
+
+	fmt.Println(len(existingUsers), newUser)
+
+	for _, user := range existingUsers {
+		localWG.Add(1)
+		go func(user User) {
+			distance := getDistance(newUser.location, user.location)
+			mu.Lock()
+			localData[user.name] = distance
+			mu.Unlock()
+			localWG.Done()
+		}(user)
+	}
+	localWG.Wait()
+
+	fmt.Println(localData)
+	nodesCh <- ConnectedNodesRequest{
+		node:  newUser.name,
+		value: localData,
+	}
+
+	// TODO: this is quitting for the first passenger request. It should not quit
+	wg.Done()
+	//quitCh <- 1
+}
+
+func addConcurrentPassengers(count int, ch chan<- User) {
+	var localWG sync.WaitGroup
+	for i := 0; i < count; i++ {
+		localWG.Add(1)
+		go func(i int) {
+			ch <- User{
+				name:     "p" + strconv.Itoa(i),
+				location: generateRandomLocation(),
+			}
+			localWG.Done()
+		}(i)
+	}
+	localWG.Wait()
+	// quitCh <- 1
+	wg.Done()
+}
+
 func getDistance(src Location, dest Location) float32 {
-	// TODO: make API call to get shortest distance by lat, long
-	return float32(rand.Intn(100))
+	// TODO: fetch data from OSRM
+	time.Sleep(1000 * time.Millisecond)
+	distance := float32(rand.Intn(100))
+	return distance
 }
 
-// TODO:
+// TODO: generate coordinates within a range around HS Fulda
 func generateRandomLocation() Location {
-	return Location{0, 0}
+	return Location{rand.Float64(), rand.Float64()}
 }
-
-func addPassenger(name string, location Location, ch chan map[string]float32) {
-	x := getDistance(location, HSFuldaCoordinates)
-
-	localMap := make(map[string]float64)
-
-	// TODO: create localMap, add all values to the map, return to main method. Main method will add it to GlobalMap
-
-	// TODO: calculate distance to each user and update the globalMap
-
-}
-
-// func addDriver()
