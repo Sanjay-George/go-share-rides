@@ -72,10 +72,13 @@ func main() {
 	wg.Wait()
 	wg.Add(1)
 	go addConcurrentPassengers(2, globalData.activeUsersCh)
+	wg.Wait()
 
 	// create M drivers and push to users channel
 	// assignDriver() to take activeusers at that time, create copy and
-
+	wg.Add(1)
+	go addDriver(globalData.activeUsersCh)
+	wg.Wait()
 }
 
 func initChannelListeners(usersCh chan User, nodesCh chan ConnectedNodesRequest) {
@@ -149,6 +152,15 @@ func addConcurrentPassengers(count int, ch chan<- User) {
 	}
 	localWG.Wait()
 	// quitCh <- 1
+	wg.Done()
+}
+
+func addDriver(ch chan<- User) {
+	ActiveDriverCount += 1
+	ch <- User{
+		name:     "d" + strconv.Itoa(ActiveDriverCount),
+		location: generateRandomLocation(),
+	}
 	wg.Done()
 }
 
