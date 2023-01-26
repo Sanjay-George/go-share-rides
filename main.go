@@ -29,7 +29,7 @@ type Location struct {
 }
 type ConnectedNodesRequest struct {
 	node  string
-	value map[string]float32
+	value map[string]int
 }
 
 const (
@@ -47,7 +47,7 @@ type User struct {
 type GlobalState struct {
 	activeUsers      []User
 	activeUsersCh    chan User
-	connectedNodes   map[string]map[string]float32
+	connectedNodes   map[string]map[string]int
 	connectedNodesCh chan ConnectedNodesRequest
 }
 
@@ -55,7 +55,7 @@ type GlobalState struct {
 // Use channels for communication and modify from main goroutine
 var globalData = GlobalState{
 	activeUsers:      make([]User, 0, 100), // capacity of 100 users initially
-	connectedNodes:   make(map[string]map[string]float32),
+	connectedNodes:   make(map[string]map[string]int),
 	connectedNodesCh: make(chan ConnectedNodesRequest),
 	activeUsersCh:    make(chan User),
 }
@@ -72,7 +72,7 @@ func main() {
 		fmt.Println(globalData.connectedNodes)
 	}()
 
-	// rand.Seed(time.Now().UnixNano())
+	rand.Seed(time.Now().UnixNano())
 
 	// Don't wait initChannelListeners as it is in infinite for.
 	go initChannelListeners(globalData.activeUsersCh, globalData.connectedNodesCh)
@@ -81,10 +81,10 @@ func main() {
 	// create N passengers and push to users channel  - concurrent
 	// add listener to read from users channel and push to active users
 	wg.Add(1)
-	go addConcurrentPassengers(5, globalData.activeUsersCh)
+	go addConcurrentPassengers(2, globalData.activeUsersCh)
 	wg.Wait()
 	wg.Add(1)
-	go addConcurrentPassengers(5, globalData.activeUsersCh)
+	go addConcurrentPassengers(2, globalData.activeUsersCh)
 	wg.Wait()
 
 	// create M drivers and push to users channel
@@ -99,7 +99,7 @@ func main() {
 
 }
 
-func assignPassengers(driver string, users []User, connections map[string]map[string]float32) {
+func assignPassengers(driver string, users []User, connections map[string]map[string]int) {
 	graph := buildGraph(driver, users, connections)
 	fmt.Printf("\nGraph")
 	fmt.Println(graph)
@@ -123,7 +123,7 @@ func assignPassengers(driver string, users []User, connections map[string]map[st
 	wg.Done()
 }
 
-func buildGraph(driver string, users []User, connections map[string]map[string]float32) *WeightedGraph {
+func buildGraph(driver string, users []User, connections map[string]map[string]int) *WeightedGraph {
 	graph := NewGraph()
 	nodes := graph.AddNodes(buildNodes(driver, users)...)
 
@@ -177,7 +177,7 @@ func initChannelListeners(usersCh chan User, nodesCh chan ConnectedNodesRequest)
 
 func calculateDistanceToExistingNodes(newUser User, existingUsers []User, nodesCh chan ConnectedNodesRequest) {
 	var localWG sync.WaitGroup
-	localData := make(map[string]float32)
+	localData := make(map[string]int)
 	var mu sync.Mutex
 
 	fmt.Println(len(existingUsers), newUser)
@@ -216,7 +216,7 @@ func addConcurrentPassengers(count int, ch chan<- User) {
 		go func(i int) {
 			ch <- User{
 				name:     "p" + strconv.Itoa(i),
-				location: generateRandomLocation(5), // 30 km radius
+				location: generateRandomLocation(20),
 				userType: Passenger,
 			}
 			localWG.Done()
@@ -230,7 +230,7 @@ func addConcurrentPassengers(count int, ch chan<- User) {
 func addDriver(name string, ch chan<- User) {
 	ch <- User{
 		name:     name,
-		location: generateRandomLocation(30),
+		location: generateRandomLocation(20),
 		userType: Driver,
 	}
 	wg.Done()
@@ -259,7 +259,7 @@ type DistanceResponse struct {
 	} `json:"waypoints"`
 }
 
-func getDistance(src Location, dest Location) float32 {
+func getDistance(src Location, dest Location) int {
 	// TODO: fetch data from OSRM
 	// http://localhost:5000/route/v1/driving/9.685991642142039,50.5650744;9.6800597,50.5552363?overview=false&alternatives=true&steps=false
 
@@ -274,6 +274,7 @@ func getDistance(src Location, dest Location) float32 {
 	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Println("Unable to get response from distance API")
+		return math.MaxInt
 	}
 	defer resp.Body.Close()
 
@@ -284,7 +285,11 @@ func getDistance(src Location, dest Location) float32 {
 	if err := json.Unmarshal(body, &result); err != nil {
 		fmt.Println("Unable to unmarshal JSON")
 	}
-	return float32(result.Routes[0].Distance)
+
+	if len(result.Routes) > 0 {
+		return int(result.Routes[0].Distance)
+	}
+	return math.MaxInt
 }
 
 // https://gis.stackexchange.com/questions/25877/generating-random-locations-nearby
