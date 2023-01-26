@@ -1,8 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"math"
 	"math/rand"
+	"net/http"
 	"strconv"
 	"sync"
 	"time"
@@ -68,6 +72,8 @@ func main() {
 		fmt.Println(globalData.connectedNodes)
 	}()
 
+	// rand.Seed(time.Now().UnixNano())
+
 	// Don't wait initChannelListeners as it is in infinite for.
 	go initChannelListeners(globalData.activeUsersCh, globalData.connectedNodesCh)
 	addHSFuldaNode(globalData.activeUsersCh)
@@ -75,10 +81,10 @@ func main() {
 	// create N passengers and push to users channel  - concurrent
 	// add listener to read from users channel and push to active users
 	wg.Add(1)
-	go addConcurrentPassengers(2, globalData.activeUsersCh)
+	go addConcurrentPassengers(5, globalData.activeUsersCh)
 	wg.Wait()
 	wg.Add(1)
-	go addConcurrentPassengers(2, globalData.activeUsersCh)
+	go addConcurrentPassengers(5, globalData.activeUsersCh)
 	wg.Wait()
 
 	// create M drivers and push to users channel
@@ -210,7 +216,7 @@ func addConcurrentPassengers(count int, ch chan<- User) {
 		go func(i int) {
 			ch <- User{
 				name:     "p" + strconv.Itoa(i),
-				location: generateRandomLocation(),
+				location: generateRandomLocation(5), // 30 km radius
 				userType: Passenger,
 			}
 			localWG.Done()
@@ -224,22 +230,74 @@ func addConcurrentPassengers(count int, ch chan<- User) {
 func addDriver(name string, ch chan<- User) {
 	ch <- User{
 		name:     name,
-		location: generateRandomLocation(),
+		location: generateRandomLocation(30),
 		userType: Driver,
 	}
 	wg.Done()
 }
 
-func getDistance(src Location, dest Location) float32 {
-	// TODO: fetch data from OSRM
-	time.Sleep(1000 * time.Millisecond)
-	distance := float32(rand.Intn(100))
-	return distance
+type DistanceResponse struct {
+	Code   string `json:"code"`
+	Routes []struct {
+		Legs []struct {
+			Steps    []interface{} `json:"steps"`
+			Summary  string        `json:"summary"`
+			Weight   float64       `json:"weight"`
+			Duration float64       `json:"duration"`
+			Distance float64       `json:"distance"`
+		} `json:"legs"`
+		WeightName string  `json:"weight_name"`
+		Weight     float64 `json:"weight"`
+		Duration   float64 `json:"duration"`
+		Distance   float64 `json:"distance"`
+	} `json:"routes"`
+	Waypoints []struct {
+		Hint     string    `json:"hint"`
+		Distance float64   `json:"distance"`
+		Name     string    `json:"name"`
+		Location []float64 `json:"location"`
+	} `json:"waypoints"`
 }
 
-// TODO: generate coordinates within a range around HS Fulda
-func generateRandomLocation() Location {
-	return Location{rand.Float64(), rand.Float64()}
+func getDistance(src Location, dest Location) float32 {
+	// TODO: fetch data from OSRM
+	// http://localhost:5000/route/v1/driving/9.685991642142039,50.5650744;9.6800597,50.5552363?overview=false&alternatives=true&steps=false
+
+	time.Sleep(1000 * time.Millisecond)
+
+	// distance := float32(rand.Intn(100))
+
+	srcCoordinates := strconv.FormatFloat(src.Long, 'f', -1, 64) + "," + strconv.FormatFloat(src.Lat, 'f', -1, 64)
+	destCoordinates := strconv.FormatFloat(dest.Long, 'f', -1, 64) + "," + strconv.FormatFloat(dest.Lat, 'f', -1, 64)
+
+	url := "http://localhost:5000/route/v1/driving/" + srcCoordinates + ";" + destCoordinates + "?overview=false&alternatives=true&steps=false"
+	resp, err := http.Get(url)
+	if err != nil {
+		fmt.Println("Unable to get response from distance API")
+	}
+	defer resp.Body.Close()
+
+	body, _ := ioutil.ReadAll(resp.Body)
+	// fmt.Println(string(body))
+
+	var result DistanceResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		fmt.Println("Unable to unmarshal JSON")
+	}
+	return float32(result.Routes[0].Distance)
+}
+
+// https://gis.stackexchange.com/questions/25877/generating-random-locations-nearby
+func generateRandomLocation(radiusInKm int) Location {
+	x0, y0 := 50.565100, 9.686800                                  // lat long of HS Fulda
+	radius := float64(float64(radiusInKm*1000) / float64(1113000)) // convert km into degress
+	u, v := rand.Float64(), rand.Float64()
+	w := radius * math.Sqrt(u)
+	t := 2 * math.Pi * v
+	x := w * math.Cos(t)
+	y := w * math.Sin(t)
+	x = x / math.Cos(y0)
+	return Location{x + x0, y + y0}
 }
 
 func addHSFuldaNode(ch chan<- User) {
