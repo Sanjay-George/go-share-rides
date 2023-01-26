@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	HSFuldaUsername   = "HS"
-	MaxPassengerCount = 2
-	MaxDriverCount    = 2
+	HSFuldaUsername      = "HS"
+	MaxPassengerCount    = 2
+	MaxDriverCount       = 2
+	MultiplicationFactor = 1.5
 )
 
 var (
@@ -104,12 +105,12 @@ func assignPassengers(driver string, users []User, connections map[string]map[st
 	fmt.Printf("\nGraph")
 	fmt.Println(graph)
 
-	maxDistance := connections[driver][HSFuldaUsername] * 5 // TODO: find optimal multiplication factor
-	FindOptimalPath(graph, driver, int(maxDistance))
+	maxDistance := int(float32(connections[driver][HSFuldaUsername]) * MultiplicationFactor) // TODO: find optimal multiplication factor
+	FindOptimalPath(graph, driver, HSFuldaUsername, int(maxDistance))
 
 	for _, node := range graph.Nodes {
 		if node.name == HSFuldaUsername {
-			fmt.Printf("Shortest path from %s to %s is %d\n", driver, HSFuldaUsername, node.value)
+			fmt.Printf("Optimal path from %s to %s covers %d m with emission %d units\n", driver, HSFuldaUsername, node.shortestDistance, node.GetEmissionValue())
 			for n := node; n.through != nil; n = n.through {
 				fmt.Print(n.name, " <- ")
 
@@ -216,7 +217,7 @@ func addConcurrentPassengers(count int, ch chan<- User) {
 		go func(i int) {
 			ch <- User{
 				name:     "p" + strconv.Itoa(i),
-				location: generateRandomLocation(20),
+				location: generateRandomLocation(5),
 				userType: Passenger,
 			}
 			localWG.Done()
@@ -230,7 +231,7 @@ func addConcurrentPassengers(count int, ch chan<- User) {
 func addDriver(name string, ch chan<- User) {
 	ch <- User{
 		name:     name,
-		location: generateRandomLocation(20),
+		location: generateRandomLocation(30),
 		userType: Driver,
 	}
 	wg.Done()

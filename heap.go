@@ -21,7 +21,7 @@ func (h *Heap) Push(element *Node) {
 	i := len(h.elements) - 1
 
 	// Min heap
-	for ; h.elements[i].value < h.elements[parent(i)].value; i = parent(i) {
+	for ; h.elements[i].GetEmissionValue() < h.elements[parent(i)].GetEmissionValue(); i = parent(i) {
 		h.swap(i, parent(i))
 	}
 }
@@ -41,11 +41,11 @@ func (h *Heap) rearrange(i int) {
 	smallest := i
 	left, right, size := leftChild(i), rightChild(i), len(h.elements)
 
-	if left < size && h.elements[left].value < h.elements[smallest].value {
+	if left < size && h.elements[left].GetEmissionValue() < h.elements[smallest].GetEmissionValue() {
 		smallest = left
 	}
 
-	if right < size && h.elements[right].value < h.elements[smallest].value {
+	if right < size && h.elements[right].GetEmissionValue() < h.elements[smallest].GetEmissionValue() {
 		smallest = right
 	}
 	if smallest != i {

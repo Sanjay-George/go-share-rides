@@ -6,8 +6,11 @@ import (
 )
 
 type Node struct {
-	name    string
-	value   int
+	name string
+	// value            int
+	shortestDistance int
+	passengerCount   uint8
+
 	through *Node // TODO: check if through can be used to find number of nodes at a point
 }
 
@@ -49,7 +52,7 @@ func (graph *WeightedGraph) AddNodes(names ...string) (nodes map[string]*Node) {
 	nodes = make(map[string]*Node)
 
 	for _, name := range names {
-		n := &Node{name: name, value: math.MaxInt, through: nil}
+		n := &Node{name: name, shortestDistance: math.MaxInt, passengerCount: 1, through: nil}
 		graph.AddNode(n)
 		nodes[name] = n
 	}
@@ -61,4 +64,8 @@ func (g *WeightedGraph) AddEdge(n1, n2 *Node, weight int) {
 	defer g.mutex.Unlock()
 	g.Edges[n1.name] = append(g.Edges[n1.name], &Edge{node: n2, weight: weight})
 	g.Edges[n2.name] = append(g.Edges[n2.name], &Edge{node: n1, weight: weight})
+}
+
+func (node *Node) GetEmissionValue() int {
+	return node.shortestDistance / int(node.passengerCount)
 }
