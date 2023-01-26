@@ -28,9 +28,16 @@ type ConnectedNodesRequest struct {
 	value map[string]float32
 }
 
+const (
+	Destination = iota
+	Driver      = iota
+	Passenger   = iota
+)
+
 type User struct {
 	name     string
 	location Location
+	userType int
 }
 
 type GlobalState struct {
@@ -75,10 +82,68 @@ func main() {
 	wg.Wait()
 
 	// create M drivers and push to users channel
-	// assignDriver() to take activeusers at that time, create copy and
+	ActiveDriverCount += 1
+	driverName := "d" + strconv.Itoa(ActiveDriverCount)
 	wg.Add(1)
-	go addDriver(globalData.activeUsersCh)
+	go addDriver(driverName, globalData.activeUsersCh)
 	wg.Wait()
+	wg.Add(1)
+	go assignPassengers(driverName, globalData.activeUsers, globalData.connectedNodes)
+	wg.Wait()
+
+}
+
+func assignPassengers(driver string, users []User, connections map[string]map[string]float32) {
+	graph := buildGraph(driver, users, connections)
+	fmt.Printf("\nGraph")
+	fmt.Println(graph)
+
+	maxDistance := connections[driver][HSFuldaUsername] * 5 // TODO: find optimal multiplication factor
+	FindOptimalPath(graph, driver, int(maxDistance))
+
+	for _, node := range graph.Nodes {
+		if node.name == HSFuldaUsername {
+			fmt.Printf("Shortest path from %s to %s is %d\n", driver, HSFuldaUsername, node.value)
+			for n := node; n.through != nil; n = n.through {
+				fmt.Print(n.name, " <- ")
+
+				// remove user (driver and passenger) from Users and Connections (don't remove HS fulda)
+			}
+			fmt.Println(driver)
+			fmt.Println()
+			break
+		}
+	}
+	wg.Done()
+}
+
+func buildGraph(driver string, users []User, connections map[string]map[string]float32) *WeightedGraph {
+	graph := NewGraph()
+	nodes := graph.AddNodes(buildNodes(driver, users)...)
+
+	fmt.Printf("\nNodes: ")
+	fmt.Println(nodes)
+	fmt.Println("Edges")
+
+	for src, connection := range connections {
+		for des, distance := range connection {
+			fmt.Println(nodes[src], nodes[des], distance)
+			// TODO: if multiple drivers causes issue, check this condition
+			if nodes[src] != nil && nodes[des] != nil {
+				graph.AddEdge(nodes[src], nodes[des], int(distance)) // TODO: update distance to float32
+			}
+		}
+	}
+	return graph
+}
+
+func buildNodes(driver string, users []User) (nodeNames []string) {
+	for _, user := range users {
+		if user.name == driver || user.userType != Driver {
+			nodeNames = append(nodeNames, user.name)
+		}
+	}
+	return
 }
 
 func initChannelListeners(usersCh chan User, nodesCh chan ConnectedNodesRequest) {
@@ -146,6 +211,7 @@ func addConcurrentPassengers(count int, ch chan<- User) {
 			ch <- User{
 				name:     "p" + strconv.Itoa(i),
 				location: generateRandomLocation(),
+				userType: Passenger,
 			}
 			localWG.Done()
 		}(ActivePassengerCount)
@@ -155,11 +221,11 @@ func addConcurrentPassengers(count int, ch chan<- User) {
 	wg.Done()
 }
 
-func addDriver(ch chan<- User) {
-	ActiveDriverCount += 1
+func addDriver(name string, ch chan<- User) {
 	ch <- User{
-		name:     "d" + strconv.Itoa(ActiveDriverCount),
+		name:     name,
 		location: generateRandomLocation(),
+		userType: Driver,
 	}
 	wg.Done()
 }
@@ -180,5 +246,6 @@ func addHSFuldaNode(ch chan<- User) {
 	ch <- User{
 		name:     "HS",
 		location: Location{50.565100, 9.686800},
+		userType: Destination,
 	}
 }
