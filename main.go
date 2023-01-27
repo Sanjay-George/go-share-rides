@@ -38,18 +38,27 @@ var globalData = GlobalState{
 // var quitCh = make(chan int)
 var wg sync.WaitGroup
 var rwMutex sync.RWMutex
+var logger Logger
 
 func main() {
 	defer func() {
 		wg.Wait()
-		fmt.Printf("\nActive users:")
-		fmt.Println(globalData.activeUsers)
-		fmt.Printf("\nAvailable nodes:")
-		fmt.Println(globalData.connectedNodes)
+		logger.Log(fmt.Sprintf("-------------\n"))
+		logger.Log(fmt.Sprintf("Active users:\n"))
+		logger.Log(fmt.Sprintf("-------------\n"))
+		logger.Log(fmt.Sprintln(globalData.activeUsers))
+		logger.Log(fmt.Sprintf("-------------\n"))
+		logger.Log(fmt.Sprintf("Available nodes:\n"))
+		logger.Log(fmt.Sprintf("-------------\n"))
+		logger.Log(fmt.Sprintln(globalData.connectedNodes))
 	}()
 
+	logger.isEnabled = true
+
 	// runtime.GOMAXPROCS(1)
-	fmt.Printf("Welcome to Carida! Threads: %d. Available CPU: %d\n\n", runtime.GOMAXPROCS(-1), runtime.NumCPU())
+	logger.Log(fmt.Sprintln("----------------------------------------------------------"))
+	logger.Log(fmt.Sprintf("Welcome to Carida! Threads: %d. Available CPU: %d\n", runtime.GOMAXPROCS(-1), runtime.NumCPU()))
+	logger.Log(fmt.Sprintln("----------------------------------------------------------"))
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -107,8 +116,8 @@ func assignPassengersToActiveDrivers(users []User, connections map[string]map[st
 			activeDrivers = append(activeDrivers, user.name)
 		}
 	}
-	fmt.Println("Active Drivers")
-	fmt.Println(activeDrivers)
+	logger.Log(fmt.Sprintln("Active Drivers"))
+	logger.Log(fmt.Sprintln(activeDrivers))
 	rwMutex.RUnlock()
 
 	// for each driver, call assignPassengers goroutine
@@ -133,17 +142,17 @@ func assignPassengers(driver string, users []User, connections map[string]map[st
 			continue
 		}
 		if node.shortestDistance == math.MaxInt {
-			fmt.Printf("No optimal path found from %s to %s\n", driver, HSFuldaUsername)
+			logger.Log(fmt.Sprintf("No optimal path found from %s to %s\n", driver, HSFuldaUsername))
 			break
 		}
-		fmt.Printf("Optimal path from %s to %s covers %d m with emission of %d units per person\n", driver, HSFuldaUsername, node.shortestDistance, node.GetEmissionValue())
+		logger.Log(fmt.Sprintf("Optimal path from %s to %s covers %d m with emission of %d units per person\n", driver, HSFuldaUsername, node.shortestDistance, node.GetEmissionValue()))
 		for n := node; n.through != nil; n = n.through {
-			fmt.Print(n.name, " <- ")
+			logger.Log(fmt.Sprintf(n.name, " <- "))
 
 			// remove user (driver and passenger) from Users and Connections (don't remove HS fulda)
 		}
-		fmt.Println(driver)
-		fmt.Println()
+		logger.Log(fmt.Sprintln(driver))
+		logger.Log(fmt.Sprintln())
 		break
 	}
 	parentWG.Done()
@@ -160,7 +169,7 @@ func buildGraph(driver string, users []User, connections map[string]map[string]i
 	rwMutex.RLock()
 	for src, connection := range connections {
 		for des, distance := range connection {
-			// fmt.Println(nodes[src], nodes[des], distance)
+
 			// TODO: if multiple drivers causes issue, check this condition
 			if nodes[src] != nil && nodes[des] != nil && distance >= 0 {
 				graph.AddEdge(nodes[src], nodes[des], int(distance)) // TODO: update distance to float32
@@ -212,8 +221,6 @@ func calculateDistanceToExistingNodes(newUser User, existingUsers []User, nodesC
 	localData := make(map[string]int)
 	var mu sync.Mutex
 
-	fmt.Println(len(existingUsers), newUser)
-
 	for _, user := range existingUsers {
 		if user.name == newUser.name {
 			continue
@@ -231,7 +238,7 @@ func calculateDistanceToExistingNodes(newUser User, existingUsers []User, nodesC
 	}
 	localWG.Wait()
 
-	fmt.Println(localData)
+	logger.Log(fmt.Sprintf("Distance matrix for user %s: %v\n", newUser.name, localData))
 	nodesCh <- ConnectedNodesRequest{
 		node:  newUser.name,
 		value: localData,
@@ -280,7 +287,7 @@ func getDistance(src Location, dest Location) int {
 	url := "http://localhost:5000/route/v1/driving/" + srcCoordinates + ";" + destCoordinates + "?overview=false&alternatives=true&steps=false"
 	resp, err := http.Get(url)
 	if err != nil {
-		fmt.Printf("\nUnable to get response from distance API. URL: %s", url)
+		logger.Log(fmt.Sprintf("Unable to get response from distance API. URL: %s\n", url))
 		return -1
 	}
 	defer resp.Body.Close()
@@ -289,7 +296,7 @@ func getDistance(src Location, dest Location) int {
 
 	var result DistanceResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		fmt.Println("Unable to unmarshal JSON")
+		logger.Log(fmt.Sprintln("Unable to unmarshal JSON"))
 	}
 
 	if len(result.Routes) > 0 {

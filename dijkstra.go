@@ -5,14 +5,16 @@ import "fmt"
 // FindOptimalPath returns the optimal path from the source to any node in the graph
 // It uses a modified version of Dijkstra's shortest path algorithm
 func FindOptimalPath(graph *WeightedGraph, origin string, destination string, maxDistance int) {
-	fmt.Printf("\n\nFinding Optimal path\n")
+	logger.Log(fmt.Sprintf("--------------------\n"))
+	logger.Log(fmt.Sprintf("Finding Optimal path\n"))
+	logger.Log(fmt.Sprintf("--------------------\n"))
 
 	visited := make(map[string]bool)
 	heap := &Heap{}
 
 	startNode := graph.GetNode(origin)
 
-	fmt.Println(startNode)
+	logger.Log(fmt.Sprintf("StartNode: %v\n", startNode))
 
 	startNode.shortestDistance = 0
 	startNode.passengerCount = 1
@@ -26,18 +28,16 @@ func FindOptimalPath(graph *WeightedGraph, origin string, destination string, ma
 
 		for _, edge := range edges {
 			// TODO: Add threshold condition below (current.value + edge.weight >= threshold, don't process further)
-			fmt.Printf("currentNode: %s edgeNode: %s\n", current.name, edge.node.name)
-			fmt.Printf("current.shortestDistance: %d, edge.weight: %d \n", current.shortestDistance, edge.weight)
+			// fmt.Printf("currentNode: %s edgeNode: %s\n", current.name, edge.node.name)
+			// fmt.Printf("current.shortestDistance: %d, edge.weight: %d \n", current.shortestDistance, edge.weight)
 
 			if !visited[edge.node.name] && !(current.shortestDistance+edge.weight >= maxDistance) {
 				heap.Push(edge.node)
 				currentEmissionValue := (current.shortestDistance + edge.weight) / int(current.passengerCount+1)
 				edgeNodeEmissionValue := edge.node.GetEmissionValue()
-				fmt.Printf("currentEmissionValue: %d, edge.node.shortestDistance: %d, current.passengerCount: %d, edgeEmissionValue: %d \n", currentEmissionValue, edge.node.shortestDistance, current.passengerCount, edgeNodeEmissionValue)
+				// fmt.Printf("currentEmissionValue: %d, edge.node.shortestDistance: %d, current.passengerCount: %d, edgeEmissionValue: %d \n", currentEmissionValue, edge.node.shortestDistance, current.passengerCount, edgeNodeEmissionValue)
 
 				if currentEmissionValue < edgeNodeEmissionValue {
-					// TODO: add the distance/people logic below.
-					fmt.Println("Updating value in node")
 					edge.node.shortestDistance = current.shortestDistance + edge.weight
 					edge.node.through = current
 					if edge.node.name != destination {
