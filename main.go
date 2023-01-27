@@ -24,6 +24,7 @@ var (
 	HSFuldaCoordinates   = Location{50.565100, 9.686800}
 	ActivePassengerCount = 0
 	ActiveDriverCount    = 0
+	isBenchMarked        = false
 )
 
 // TODO: Ensure global state is not directly modified by any other goroutine
@@ -41,7 +42,9 @@ var rwMutex sync.RWMutex
 var logger Logger
 
 func main() {
-	defer func() {
+	start := time.Now()
+
+	defer func(start time.Time) {
 		wg.Wait()
 		logger.Log(fmt.Sprintf("-------------\n"))
 		logger.Log(fmt.Sprintf("Active users:\n"))
@@ -51,30 +54,33 @@ func main() {
 		logger.Log(fmt.Sprintf("Available nodes:\n"))
 		logger.Log(fmt.Sprintf("-------------\n"))
 		logger.Log(fmt.Sprintln(globalData.connectedNodes))
-	}()
+		duration := time.Since(start)
+		fmt.Printf("\n----------------------\n")
+		fmt.Printf("Execution Time: %d ms\n", duration.Milliseconds())
+		fmt.Printf("----------------------\n")
+	}(start)
 
-	logger.isEnabled = true
+	rand.Seed(time.Now().UnixNano())
+	isBenchMarked = false
+	if !isBenchMarked {
+		logger.isEnabled = true
+	}
 
 	// runtime.GOMAXPROCS(1)
 	logger.Log(fmt.Sprintln("----------------------------------------------------------"))
 	logger.Log(fmt.Sprintf("Welcome to Carida! Threads: %d. Available CPU: %d\n", runtime.GOMAXPROCS(-1), runtime.NumCPU()))
 	logger.Log(fmt.Sprintln("----------------------------------------------------------"))
 
-	rand.Seed(time.Now().UnixNano())
-
 	// Don't wait initChannelListeners as it is in infinite for.
 	go initChannelListeners(globalData.activeUsersCh, globalData.connectedNodesCh)
 	addHSFuldaNode(globalData.activeUsersCh)
 
-	// create N passengers and push to users channel  - concurrent
-	// add listener to read from users channel and push to active users
 	wg.Add(1)
-	go addConcurrentPassengers(5, globalData.activeUsersCh)
+	go addConcurrentPassengers(50, globalData.activeUsersCh)
 	wg.Wait()
 
-	// create M drivers and push to users channel
 	wg.Add(1)
-	go addConcurrentDrivers(2, globalData.activeUsersCh)
+	go addConcurrentDrivers(10, globalData.activeUsersCh)
 	wg.Wait()
 
 	wg.Add(1)
@@ -100,9 +106,7 @@ func addConcurrentDrivers(count int, ch chan<- User) {
 		}(driverName)
 	}
 	localWG.Wait()
-	// go assignPassengers(driverName, globalData.activeUsers, globalData.connectedNodes)
 	wg.Done()
-
 }
 
 func assignPassengersToActiveDrivers(users []User, connections map[string]map[string]int) {
@@ -116,9 +120,9 @@ func assignPassengersToActiveDrivers(users []User, connections map[string]map[st
 			activeDrivers = append(activeDrivers, user.name)
 		}
 	}
+	rwMutex.RUnlock()
 	logger.Log(fmt.Sprintln("Active Drivers"))
 	logger.Log(fmt.Sprintln(activeDrivers))
-	rwMutex.RUnlock()
 
 	// for each driver, call assignPassengers goroutine
 	for _, driver := range activeDrivers {
@@ -131,8 +135,6 @@ func assignPassengersToActiveDrivers(users []User, connections map[string]map[st
 
 func assignPassengers(driver string, users []User, connections map[string]map[string]int, parentWG *sync.WaitGroup) {
 	graph := buildGraph(driver, users, connections)
-	// fmt.Printf("\nGraph")
-	// fmt.Println(graph)
 
 	maxDistance := int(float32(connections[driver][HSFuldaUsername]) * MultiplicationFactor) // TODO: find optimal multiplication factor
 	FindOptimalPath(graph, driver, HSFuldaUsername, int(maxDistance))
@@ -147,9 +149,7 @@ func assignPassengers(driver string, users []User, connections map[string]map[st
 		}
 		logger.Log(fmt.Sprintf("Optimal path from %s to %s covers %d m with emission of %d units per person\n", driver, HSFuldaUsername, node.shortestDistance, node.GetEmissionValue()))
 		for n := node; n.through != nil; n = n.through {
-			logger.Log(fmt.Sprintf(n.name, " <- "))
-
-			// remove user (driver and passenger) from Users and Connections (don't remove HS fulda)
+			logger.Log(fmt.Sprintf("%s <- ", n.name))
 		}
 		logger.Log(fmt.Sprintln(driver))
 		logger.Log(fmt.Sprintln())
@@ -222,14 +222,14 @@ func calculateDistanceToExistingNodes(newUser User, existingUsers []User, nodesC
 	var mu sync.Mutex
 
 	for _, user := range existingUsers {
-		if user.name == newUser.name {
+		if user.name == newUser.name || user.userType == Driver {
 			continue
 		}
 
 		localWG.Add(1)
 		go func(user User) {
 			distance := getDistance(newUser.location, user.location)
-			// Use mutex to avoid concurrent writes to the map
+			// Using mutex to avoid concurrent writes to the map
 			mu.Lock()
 			localData[user.name] = distance
 			mu.Unlock()
@@ -255,7 +255,7 @@ func addConcurrentPassengers(count int, ch chan<- User) {
 		go func(i int) {
 			ch <- User{
 				name:     "p" + strconv.Itoa(i),
-				location: generateRandomLocation(5),
+				location: generateRandomLocation(30),
 				userType: Passenger,
 			}
 			localWG.Done()
@@ -266,21 +266,7 @@ func addConcurrentPassengers(count int, ch chan<- User) {
 	wg.Done()
 }
 
-// func addDriver(name string, ch chan<- User) {
-// 	ch <- User{
-// 		name:     name,
-// 		location: generateRandomLocation(30),
-// 		userType: Driver,
-// 	}
-// 	wg.Done()
-// }
-
 func getDistance(src Location, dest Location) int {
-	// http://localhost:5000/route/v1/driving/9.685991642142039,50.5650744;9.6800597,50.5552363?overview=false&alternatives=true&steps=false
-
-	// time.Sleep(1000 * time.Millisecond)
-	// distance := float32(rand.Intn(100))
-
 	srcCoordinates := strconv.FormatFloat(src.Long, 'f', -1, 64) + "," + strconv.FormatFloat(src.Lat, 'f', -1, 64)
 	destCoordinates := strconv.FormatFloat(dest.Long, 'f', -1, 64) + "," + strconv.FormatFloat(dest.Lat, 'f', -1, 64)
 

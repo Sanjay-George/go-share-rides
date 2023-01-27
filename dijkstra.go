@@ -14,8 +14,6 @@ func FindOptimalPath(graph *WeightedGraph, origin string, destination string, ma
 
 	startNode := graph.GetNode(origin)
 
-	logger.Log(fmt.Sprintf("StartNode: %v\n", startNode))
-
 	startNode.shortestDistance = 0
 	startNode.passengerCount = 1
 	heap.Push(startNode)
