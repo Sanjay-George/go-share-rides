@@ -49,7 +49,7 @@ func main() {
 	}()
 
 	// runtime.GOMAXPROCS(1)
-	fmt.Println(runtime.GOMAXPROCS(-1))
+	fmt.Printf("Welcome to Carida! Threads: %d. Available CPU: %d\n\n", runtime.GOMAXPROCS(-1), runtime.NumCPU())
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -60,15 +60,12 @@ func main() {
 	// create N passengers and push to users channel  - concurrent
 	// add listener to read from users channel and push to active users
 	wg.Add(1)
-	go addConcurrentPassengers(1, globalData.activeUsersCh)
-	wg.Wait()
-	wg.Add(1)
-	go addConcurrentPassengers(1, globalData.activeUsersCh)
+	go addConcurrentPassengers(5, globalData.activeUsersCh)
 	wg.Wait()
 
 	// create M drivers and push to users channel
 	wg.Add(1)
-	go addConcurrentDrivers(1, globalData.activeUsersCh)
+	go addConcurrentDrivers(2, globalData.activeUsersCh)
 	wg.Wait()
 
 	wg.Add(1)
@@ -283,7 +280,7 @@ func getDistance(src Location, dest Location) int {
 	url := "http://localhost:5000/route/v1/driving/" + srcCoordinates + ";" + destCoordinates + "?overview=false&alternatives=true&steps=false"
 	resp, err := http.Get(url)
 	if err != nil {
-		fmt.Println("Unable to get response from distance API")
+		fmt.Printf("\nUnable to get response from distance API. URL: %s", url)
 		return -1
 	}
 	defer resp.Body.Close()
