@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -25,33 +26,6 @@ var (
 	ActiveDriverCount    = 0
 )
 
-type Location struct {
-	Lat, Long float64
-}
-type ConnectedNodesRequest struct {
-	node  string
-	value map[string]int
-}
-
-const (
-	Destination = iota
-	Driver      = iota
-	Passenger   = iota
-)
-
-type User struct {
-	name     string
-	location Location
-	userType int
-}
-
-type GlobalState struct {
-	activeUsers      []User
-	activeUsersCh    chan User
-	connectedNodes   map[string]map[string]int
-	connectedNodesCh chan ConnectedNodesRequest
-}
-
 // TODO: Ensure global state is not directly modified by any other goroutine
 // Use channels for communication and modify from main goroutine
 var globalData = GlobalState{
@@ -61,8 +35,9 @@ var globalData = GlobalState{
 	activeUsersCh:    make(chan User),
 }
 
-var quitCh = make(chan int)
+// var quitCh = make(chan int)
 var wg sync.WaitGroup
+var rwMutex sync.RWMutex
 
 func main() {
 	defer func() {
@@ -73,6 +48,9 @@ func main() {
 		fmt.Println(globalData.connectedNodes)
 	}()
 
+	// runtime.GOMAXPROCS(1)
+	fmt.Println(runtime.GOMAXPROCS(-1))
+
 	rand.Seed(time.Now().UnixNano())
 
 	// Don't wait initChannelListeners as it is in infinite for.
@@ -82,70 +60,126 @@ func main() {
 	// create N passengers and push to users channel  - concurrent
 	// add listener to read from users channel and push to active users
 	wg.Add(1)
-	go addConcurrentPassengers(2, globalData.activeUsersCh)
+	go addConcurrentPassengers(1, globalData.activeUsersCh)
 	wg.Wait()
 	wg.Add(1)
-	go addConcurrentPassengers(2, globalData.activeUsersCh)
+	go addConcurrentPassengers(1, globalData.activeUsersCh)
 	wg.Wait()
 
 	// create M drivers and push to users channel
-	ActiveDriverCount += 1
-	driverName := "d" + strconv.Itoa(ActiveDriverCount)
 	wg.Add(1)
-	go addDriver(driverName, globalData.activeUsersCh)
+	go addConcurrentDrivers(1, globalData.activeUsersCh)
 	wg.Wait()
+
 	wg.Add(1)
-	go assignPassengers(driverName, globalData.activeUsers, globalData.connectedNodes)
+	go assignPassengersToActiveDrivers(globalData.activeUsers, globalData.connectedNodes)
 	wg.Wait()
 
 }
 
-func assignPassengers(driver string, users []User, connections map[string]map[string]int) {
+func addConcurrentDrivers(count int, ch chan<- User) {
+	var localWG sync.WaitGroup
+
+	for i := 0; i < count; i++ {
+		ActiveDriverCount += 1
+		driverName := "d" + strconv.Itoa(ActiveDriverCount)
+		localWG.Add(1)
+		go func(name string) {
+			ch <- User{
+				name:     name,
+				location: generateRandomLocation(30),
+				userType: Driver,
+			}
+			localWG.Done()
+		}(driverName)
+	}
+	localWG.Wait()
+	// go assignPassengers(driverName, globalData.activeUsers, globalData.connectedNodes)
+	wg.Done()
+
+}
+
+func assignPassengersToActiveDrivers(users []User, connections map[string]map[string]int) {
+	var activeDrivers []string
+	var localWG sync.WaitGroup
+
+	// Get all active drivers
+	rwMutex.RLock()
+	for _, user := range users {
+		if user.userType == Driver {
+			activeDrivers = append(activeDrivers, user.name)
+		}
+	}
+	fmt.Println("Active Drivers")
+	fmt.Println(activeDrivers)
+	rwMutex.RUnlock()
+
+	// for each driver, call assignPassengers goroutine
+	for _, driver := range activeDrivers {
+		localWG.Add(1)
+		go assignPassengers(driver, users, connections, &localWG)
+	}
+	localWG.Wait()
+	wg.Done()
+}
+
+func assignPassengers(driver string, users []User, connections map[string]map[string]int, parentWG *sync.WaitGroup) {
 	graph := buildGraph(driver, users, connections)
-	fmt.Printf("\nGraph")
-	fmt.Println(graph)
+	// fmt.Printf("\nGraph")
+	// fmt.Println(graph)
 
 	maxDistance := int(float32(connections[driver][HSFuldaUsername]) * MultiplicationFactor) // TODO: find optimal multiplication factor
 	FindOptimalPath(graph, driver, HSFuldaUsername, int(maxDistance))
 
 	for _, node := range graph.Nodes {
-		if node.name == HSFuldaUsername {
-			fmt.Printf("Optimal path from %s to %s covers %d m with emission %d units\n", driver, HSFuldaUsername, node.shortestDistance, node.GetEmissionValue())
-			for n := node; n.through != nil; n = n.through {
-				fmt.Print(n.name, " <- ")
-
-				// remove user (driver and passenger) from Users and Connections (don't remove HS fulda)
-			}
-			fmt.Println(driver)
-			fmt.Println()
+		if node.name != HSFuldaUsername {
+			continue
+		}
+		if node.shortestDistance == math.MaxInt {
+			fmt.Printf("No optimal path found from %s to %s\n", driver, HSFuldaUsername)
 			break
 		}
+		fmt.Printf("Optimal path from %s to %s covers %d m with emission of %d units per person\n", driver, HSFuldaUsername, node.shortestDistance, node.GetEmissionValue())
+		for n := node; n.through != nil; n = n.through {
+			fmt.Print(n.name, " <- ")
+
+			// remove user (driver and passenger) from Users and Connections (don't remove HS fulda)
+		}
+		fmt.Println(driver)
+		fmt.Println()
+		break
 	}
-	wg.Done()
+	parentWG.Done()
 }
 
 func buildGraph(driver string, users []User, connections map[string]map[string]int) *WeightedGraph {
 	graph := NewGraph()
 	nodes := graph.AddNodes(buildNodes(driver, users)...)
 
-	fmt.Printf("\nNodes: ")
-	fmt.Println(nodes)
-	fmt.Println("Edges")
+	// fmt.Printf("\nNodes: ")
+	// fmt.Println(nodes)
+	// fmt.Println("Edges")
 
+	rwMutex.RLock()
 	for src, connection := range connections {
 		for des, distance := range connection {
-			fmt.Println(nodes[src], nodes[des], distance)
+			// fmt.Println(nodes[src], nodes[des], distance)
 			// TODO: if multiple drivers causes issue, check this condition
-			if nodes[src] != nil && nodes[des] != nil {
+			if nodes[src] != nil && nodes[des] != nil && distance >= 0 {
 				graph.AddEdge(nodes[src], nodes[des], int(distance)) // TODO: update distance to float32
 			}
 		}
 	}
+	rwMutex.RUnlock()
+
 	return graph
 }
 
 func buildNodes(driver string, users []User) (nodeNames []string) {
+	rwMutex.RLock()
+	defer rwMutex.RUnlock()
 	for _, user := range users {
+		// Avoid other drivers while building graph
 		if user.name == driver || user.userType != Driver {
 			nodeNames = append(nodeNames, user.name)
 		}
@@ -162,14 +196,14 @@ func initChannelListeners(usersCh chan User, nodesCh chan ConnectedNodesRequest)
 		case u = <-usersCh:
 			wg.Add(1)
 			go calculateDistanceToExistingNodes(u, globalData.activeUsers, nodesCh)
+			rwMutex.Lock()
 			globalData.activeUsers = append(globalData.activeUsers, u)
+			rwMutex.Unlock()
 
 		case cnr = <-nodesCh:
+			rwMutex.Lock()
 			globalData.connectedNodes[cnr.node] = cnr.value
-
-			// case <-quitCh:
-			// 	wg.Done()
-			// 	return
+			rwMutex.Unlock()
 
 		}
 
@@ -228,44 +262,19 @@ func addConcurrentPassengers(count int, ch chan<- User) {
 	wg.Done()
 }
 
-func addDriver(name string, ch chan<- User) {
-	ch <- User{
-		name:     name,
-		location: generateRandomLocation(30),
-		userType: Driver,
-	}
-	wg.Done()
-}
-
-type DistanceResponse struct {
-	Code   string `json:"code"`
-	Routes []struct {
-		Legs []struct {
-			Steps    []interface{} `json:"steps"`
-			Summary  string        `json:"summary"`
-			Weight   float64       `json:"weight"`
-			Duration float64       `json:"duration"`
-			Distance float64       `json:"distance"`
-		} `json:"legs"`
-		WeightName string  `json:"weight_name"`
-		Weight     float64 `json:"weight"`
-		Duration   float64 `json:"duration"`
-		Distance   float64 `json:"distance"`
-	} `json:"routes"`
-	Waypoints []struct {
-		Hint     string    `json:"hint"`
-		Distance float64   `json:"distance"`
-		Name     string    `json:"name"`
-		Location []float64 `json:"location"`
-	} `json:"waypoints"`
-}
+// func addDriver(name string, ch chan<- User) {
+// 	ch <- User{
+// 		name:     name,
+// 		location: generateRandomLocation(30),
+// 		userType: Driver,
+// 	}
+// 	wg.Done()
+// }
 
 func getDistance(src Location, dest Location) int {
-	// TODO: fetch data from OSRM
 	// http://localhost:5000/route/v1/driving/9.685991642142039,50.5650744;9.6800597,50.5552363?overview=false&alternatives=true&steps=false
 
-	time.Sleep(1000 * time.Millisecond)
-
+	// time.Sleep(1000 * time.Millisecond)
 	// distance := float32(rand.Intn(100))
 
 	srcCoordinates := strconv.FormatFloat(src.Long, 'f', -1, 64) + "," + strconv.FormatFloat(src.Lat, 'f', -1, 64)
@@ -275,12 +284,11 @@ func getDistance(src Location, dest Location) int {
 	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Println("Unable to get response from distance API")
-		return math.MaxInt
+		return -1
 	}
 	defer resp.Body.Close()
 
 	body, _ := ioutil.ReadAll(resp.Body)
-	// fmt.Println(string(body))
 
 	var result DistanceResponse
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -290,7 +298,7 @@ func getDistance(src Location, dest Location) int {
 	if len(result.Routes) > 0 {
 		return int(result.Routes[0].Distance)
 	}
-	return math.MaxInt
+	return -1
 }
 
 // https://gis.stackexchange.com/questions/25877/generating-random-locations-nearby
