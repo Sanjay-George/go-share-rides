@@ -17,7 +17,7 @@ const (
 	HSFuldaUsername       = "HS"
 	MultiplicationFactor  = 1.5
 	MaxPassengersPerCar   = 4
-	ServiceableRadiusInKm = 50 // 30 km radius around HS fulda
+	ServiceableRadiusInKm = 30 // 30 km radius around HS fulda
 )
 
 var (
@@ -25,6 +25,7 @@ var (
 	ActivePassengerCount = 0
 	ActiveDriverCount    = 0
 	isBenchMarked        = false
+	shouldDisableLogs    = false
 )
 
 // TODO: Ensure global state is not directly modified by any other goroutine
@@ -62,7 +63,7 @@ func main() {
 
 	rand.Seed(time.Now().UnixNano())
 
-	if !isBenchMarked {
+	if !shouldDisableLogs {
 		logger.isEnabled = true
 	}
 
@@ -76,11 +77,11 @@ func main() {
 	addHSFuldaNode(globalData.activeUsersCh)
 
 	wg.Add(1)
-	go addConcurrentPassengers(50, globalData.activeUsersCh)
+	go addConcurrentPassengers(20, globalData.activeUsersCh)
 	wg.Wait()
 
 	wg.Add(1)
-	go addConcurrentDrivers(5, globalData.activeUsersCh)
+	go addConcurrentDrivers(2, globalData.activeUsersCh)
 	wg.Wait()
 
 	wg.Add(1)
@@ -137,7 +138,7 @@ func assignPassengers(driver string, users []User, connections map[string]map[st
 	graph := buildGraph(driver, users, connections)
 
 	maxDistance := uint32(float32(connections[driver][HSFuldaUsername]) * MultiplicationFactor) // TODO: find optimal multiplication factor
-	FindOptimalPath(graph, driver, HSFuldaUsername, maxDistance)
+	FindOptimalPath(graph, driver, HSFuldaUsername, maxDistance, MaxPassengersPerCar)
 
 	for _, node := range graph.Nodes {
 		if node.name != HSFuldaUsername {
@@ -149,6 +150,8 @@ func assignPassengers(driver string, users []User, connections map[string]map[st
 		}
 
 		logger.Log(fmt.Sprintf("Optimal path from %s to %s covers %d m with emission of %d units per person\n", driver, HSFuldaUsername, node.shortestDistance, node.GetEmissionValue()))
+		// optimalPathURL := "http://localhost:9966/?z=13&center=50.565074%2C9.685992&loc=50.575667%2C9.694613&loc=50.588401%2C9.696768&loc=50.565074%2C9.685992&hl=en&alt=0"
+		// directPathURL := ""
 		for n := node; n.through != nil; n = n.through {
 			logger.Log(fmt.Sprintf("%s <- ", n.name))
 		}
