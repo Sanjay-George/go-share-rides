@@ -6,17 +6,15 @@ import (
 )
 
 type Node struct {
-	name string
-	// value            int
-	shortestDistance int
+	name             string
+	shortestDistance uint32
 	passengerCount   uint8
-
-	through *Node // TODO: check if through can be used to find number of nodes at a point
+	through          *Node
 }
 
 type Edge struct {
 	node   *Node
-	weight int // TODO: CHANGE TYPE TO FLOAT32
+	weight uint32
 }
 
 type WeightedGraph struct {
@@ -52,20 +50,20 @@ func (graph *WeightedGraph) AddNodes(names ...string) (nodes map[string]*Node) {
 	nodes = make(map[string]*Node)
 
 	for _, name := range names {
-		n := &Node{name: name, shortestDistance: math.MaxInt, passengerCount: 1, through: nil}
+		n := &Node{name: name, shortestDistance: math.MaxUint32, passengerCount: 1, through: nil}
 		graph.AddNode(n)
 		nodes[name] = n
 	}
 	return
 }
 
-func (g *WeightedGraph) AddEdge(n1, n2 *Node, weight int) {
+func (g *WeightedGraph) AddEdge(n1, n2 *Node, weight uint32) {
 	g.mutex.Lock()
 	defer g.mutex.Unlock()
 	g.Edges[n1.name] = append(g.Edges[n1.name], &Edge{node: n2, weight: weight})
 	g.Edges[n2.name] = append(g.Edges[n2.name], &Edge{node: n1, weight: weight})
 }
 
-func (node *Node) GetEmissionValue() int {
-	return node.shortestDistance / int(node.passengerCount)
+func (node *Node) GetEmissionValue() uint32 {
+	return node.shortestDistance / uint32(node.passengerCount)
 }

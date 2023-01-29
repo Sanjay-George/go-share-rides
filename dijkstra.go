@@ -4,7 +4,7 @@ import "fmt"
 
 // FindOptimalPath returns the optimal path from the source to any node in the graph
 // It uses a modified version of Dijkstra's shortest path algorithm
-func FindOptimalPath(graph *WeightedGraph, origin string, destination string, maxDistance int) {
+func FindOptimalPath(graph *WeightedGraph, origin string, destination string, maxDistance uint32) {
 	logger.Log(fmt.Sprintf("--------------------\n"))
 	logger.Log(fmt.Sprintf("Finding Optimal path\n"))
 	logger.Log(fmt.Sprintf("--------------------\n"))
@@ -31,7 +31,7 @@ func FindOptimalPath(graph *WeightedGraph, origin string, destination string, ma
 
 			if !visited[edge.node.name] && !(current.shortestDistance+edge.weight >= maxDistance) {
 				heap.Push(edge.node)
-				currentEmissionValue := (current.shortestDistance + edge.weight) / int(current.passengerCount+1)
+				currentEmissionValue := (current.shortestDistance + edge.weight) / uint32(current.passengerCount+1)
 				edgeNodeEmissionValue := edge.node.GetEmissionValue()
 				// fmt.Printf("currentEmissionValue: %d, edge.node.shortestDistance: %d, current.passengerCount: %d, edgeEmissionValue: %d \n", currentEmissionValue, edge.node.shortestDistance, current.passengerCount, edgeNodeEmissionValue)
 

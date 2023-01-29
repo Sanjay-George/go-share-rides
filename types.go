@@ -5,7 +5,7 @@ type Location struct {
 }
 type ConnectedNodesRequest struct {
 	node  string
-	value map[string]int
+	value map[string]uint32
 }
 
 const (
@@ -17,13 +17,13 @@ const (
 type User struct {
 	name     string
 	location Location
-	userType int
+	userType uint8
 }
 
 type GlobalState struct {
 	activeUsers      []User
 	activeUsersCh    chan User
-	connectedNodes   map[string]map[string]int
+	connectedNodes   map[string]map[string]uint32
 	connectedNodesCh chan ConnectedNodesRequest
 }
 
